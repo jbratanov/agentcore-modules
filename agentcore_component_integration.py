@@ -22,19 +22,30 @@
 # Test Gateway Connectivity
 # Test Oauth Token
 # Test MCP endpoints work through Gateway for all targets configured
+#---------------------------------------------------
+# Test integration with use cases for:
+#   - Gateway connectivity
+#   - mcp access
+#   - oauth configs
+#   - secrets manager 
+#   - Flight API
+#   - Weather API
+#   - ExchangeRate API
+#---------------------------------------------------
+
+
+
+
 
 #-------------------------------------------
 # imports
 #-------------------------------------------
-import os
-import sys
+
 import json
-from dotenv import load_dotenv
 from bedrock_agentcore_starter_toolkit.operations.gateway.client import GatewayClient
 #from cognito_config import setup_cognito_oauth
 import boto3
 import requests
-from botocore.exceptions import ClientError
 from bedrock_agentcore.memory import MemoryClient
 import re
 
@@ -55,29 +66,42 @@ print("===================")
 #-------------------------------------------
 # Get existing gateway information
 #-------------------------------------------
-client = GatewayClient(region_name=REGION)
-gateways = client.client.list_gateways()['items']
-gateway_info = next((g for g in gateways if g['name'] == GATEWAY_NAME), None)
-if gateway_info:
-    gateway_info = client.client.get_gateway(gatewayIdentifier=gateway_info['gatewayId'])
-    print(f"Gateway: {gateway_info['gatewayId']}")
-else:
-    raise Exception(f"Gateway {GATEWAY_NAME} not found")
+
+def get_gateway_info(
+        gateway_name: str,
+        region: str = REGION) -> dict:
+    client = GatewayClient(region_name=region)
+    gateways = client.client.list_gateways()['items']
+    gateway_info = next((g for g in gateways if g['name'] == GATEWAY_NAME), None)
+    if gateway_info:
+        gateway_info = client.client.get_gateway(gatewayIdentifier=gateway_info['gatewayId'])
+        print(f"Gateway: {gateway_info['gatewayId']}")
+    else:
+        raise Exception(f"Gateway {GATEWAY_NAME} not found")
+
+    return(gateway_info)
 
 
+#gateway_info = get_gateway_info(GATEWAY_NAME, REGION)
 
 
 #-------------------------------------------
 # Get existing Memory information
 #-------------------------------------------
-memclient = MemoryClient(region_name=REGION)
-memories = memclient.list_memories()
-memory_id = next((m['id'] for m in memories if m['id'].startswith(MEMORY_NAME)), None)
-if memory_id != None:
-    print(f"Memory: Memory exists. Using existing memory ID: {memory_id}")
-else:
-    raise Exception(f"Memory {MEMORY_NAME} not found")        
+def get_memory_info(
+        memory_name: str,
+        region: str = REGION) -> dict:
+    memclient = MemoryClient(region_name=region)
+    memories = memclient.list_memories()
+    memory_id = next((m['id'] for m in memories if m['id'].startswith(MEMORY_NAME)), None)
+    if memory_id != None:
+        print(f"Memory: Memory exists. Using existing memory ID: {memory_id}")
+    else:
+        raise Exception(f"Memory {MEMORY_NAME} not found")        
 
+    return(memories)
+
+#memory = get_memory_info(MEMORY_NAME, REGION)
 
 
 #-------------------------------------------
@@ -86,7 +110,7 @@ else:
 
 def get_cognito_info_from_gateway(
     gateway_name: str,
-    region: str = "us-east-1",
+    region: str = REGION,
 ) -> dict:
     """
     Retrieve Cognito OAuth configuration for an existing AgentCore Gateway.
@@ -220,10 +244,10 @@ def get_cognito_info_from_gateway(
         },
     }
 
-cognito_info = get_cognito_info_from_gateway(GATEWAY_NAME, region="us-east-1")
-cognito_json = (json.dumps(cognito_info, indent=2))
-if cognito_info:
-    print(f"Cognito: Cognito client found {cognito_info['client_info']['client_id']}")
+#cognito_info = get_cognito_info_from_gateway(GATEWAY_NAME, region=REGION)
+#cognito_json = (json.dumps(cognito_info, indent=2))
+#if cognito_info:
+#    print(f"Cognito: Cognito client found {cognito_info['client_info']['client_id']}")
     
 #print(cognito_info)    
     
@@ -232,7 +256,7 @@ if cognito_info:
 #-------------------------------------------
 # Ensure OAuth Configuration
 #-------------------------------------------    
-def ensure_oauth_flows(client_info, region='us-east-1'):
+def ensure_oauth_flows(client_info, region=REGION):
     """Ensure Cognito client has client_credentials OAuth flow enabled"""
     cognito_client = boto3.client('cognito-idp', region_name=region)
     
@@ -269,24 +293,28 @@ def ensure_oauth_flows(client_info, region='us-east-1'):
         raise
 
 # Apply the fix
-print("Verifying OAuth Configuration...")
-print("=" * 60)
-ensure_oauth_flows(cognito_info['client_info'])
+#print("Verifying OAuth Configuration...")
+#print("=" * 60)
+#ensure_oauth_flows(cognito_info['client_info'])
 
 
 
 #-------------------------------------------
 # Test Gateway Connectivity
 #-------------------------------------------
-# Initialize the bedrock-agentcore-control client
-agentcore_client = boto3.client('bedrock-agentcore-control', region_name=REGION)
-secrets_client = boto3.client('secretsmanager', region_name=REGION)
 
-def get_exchangerate_api_key():
+def get_exchangerate_api_key(
+        region: str = REGION):
     """Find and retrieve the ExchangeRate API key credential provider"""
+
+    # Initialize the bedrock-agentcore-control client
+    agentcore_client = boto3.client('bedrock-agentcore-control', region_name=REGION)
+    secrets_client = boto3.client('secretsmanager', region_name=REGION)
+
+    
     try:
         # Step 1: List all providers to find the ExchangeRate one
-        print("🔍 Searching for ExchangeRate API key provider...")
+        print("Searching for ExchangeRate API key provider...")
         response = agentcore_client.list_api_key_credential_providers(maxResults=100)
         
         providers = response.get('credentialProviders', [])
@@ -350,9 +378,9 @@ def get_exchangerate_api_key():
 # Test Oauth Token
 #-------------------------------------------    
   
-def test_oauth_token():
+def test_oauth_token(cognito_info):
     """Test OAuth token retrieval from Cognito"""
-    print("🔐 Testing OAuth Token Retrieval...")
+    print("Testing OAuth Token Retrieval...")
     print("-" * 60)
     
     # Construct token endpoint from gateway info
@@ -393,7 +421,7 @@ def test_oauth_token():
         print(f"Error: Token Response: {str(e)}")
         return None
 
-def test_mcp_endpoint(access_token):
+def test_mcp_endpoint(gateway_info, access_token):
     """Test MCP endpoint connectivity"""
     print("\nTesting MCP Endpoint Connectivity...")
     print("-" * 60)
@@ -445,7 +473,7 @@ def test_mcp_endpoint(access_token):
         print(f"Error: {str(e)}")
         return False
 
-def test_gateway_tool_call(access_token, tool_name, arguments):
+def test_gateway_tool_call(gateway_info, access_token, tool_name, arguments):
     """Test a specific gateway tool call"""
     print(f"\nTesting Tool: {tool_name}")
     print("-" * 60)
@@ -492,73 +520,99 @@ def test_gateway_tool_call(access_token, tool_name, arguments):
         print(f"Error: {str(e)}")
         return None
 
-# Run all gateway tests
-print("GATEWAY CONNECTIVITY TESTS")
-#print(gateway_info)
-print("=" * 60)
-print(f"Gateway ID: {gateway_info['gatewayId']}")
-print()
 
-# Test 1: OAuth Token
-access_token = test_oauth_token()
 
-# Test 2: MCP Endpoint
-if access_token:
-    mcp_success = test_mcp_endpoint(access_token)
+def run_integration_test(gateway_info, cognito_info):
+#---------------------------------------------------
+# Test integration with use cases for:
+#   - Gateway connectivity
+#   - mcp access
+#   - oauth configs
+#   - secrets manager 
+#   - Flight API
+#   - Weather API
+#   - ExchangeRate API
+#---------------------------------------------------
+    # Run all gateway tests
+    print("GATEWAY CONNECTIVITY TESTS")
+    #print(gateway_info)
+    print("=" * 60)
+    print(f"Gateway ID: {gateway_info['gatewayId']}")
+    print()
     
-    # Test 3: Sample Tool Calls
-    if mcp_success:
-        print("\n" + "=" * 60)
-        print("Testing Sample Tool Calls")
-        print("=" * 60)
+    # Test 1: OAuth Token
+    
+    access_token = test_oauth_token(cognito_info)
+    
+    # Test 2: MCP Endpoint
+    if access_token:
+        mcp_success = test_mcp_endpoint(gateway_info, access_token)
         
-        # Test flight search
-        test_gateway_tool_call(
-            access_token,
-            "FlightSearch___getFlights",
-            {
-                "dep_iata": "NYC",
-                "arr_iata": "LAX",
-            }
-        )
-        
-        # Test weather
-        test_gateway_tool_call(
-            access_token,
-            "WeatherSearch___getCurrentWeather",
-            {
-                "q": "Rome,IT",
-                "units": "metric"
-            }
-        )
-        
-        # Test currency conversion
-        exchange_rate_apikey = json.loads(get_exchangerate_api_key())["api_key_value"]
-        test_gateway_tool_call(
-            access_token,
-            "ExchangeRate___convertCurrency",
-            {
-                #"amount": 100,
-                "api_key": exchange_rate_apikey,
-                "from_currency": "USD",
-                "to_currency": "EUR"
-            }
+        # Test 3: Sample Tool Calls
+        if mcp_success:
+            print("\n" + "=" * 60)
+            print("Testing Sample Tool Calls")
+            print("=" * 60)
+            
+            # Test flight search
+            test_gateway_tool_call(
+                gateway_info,
+                access_token,
+                "FlightSearch___getFlights",
+                {
+                    "dep_iata": "NYC",
+                    "arr_iata": "LAX",
+                }
+            )
+            
+            # Test weather
+            test_gateway_tool_call(
+                gateway_info,
+                access_token,
+                "WeatherSearch___getCurrentWeather",
+                {
+                    "q": "Rome,IT",
+                    "units": "metric"
+                }
+            )
+            
+            # Test currency conversion
+            exchange_rate_apikey = json.loads(get_exchangerate_api_key(REGION))["api_key_value"]
+            test_gateway_tool_call(
+                gateway_info,
+                access_token,
+                "ExchangeRate___convertCurrency",
+                {
+                    #"amount": 100,
+                    "api_key": exchange_rate_apikey,
+                    "from_currency": "USD",
+                    "to_currency": "EUR"
+                }
+    
+    )
+    
+    print("\n" + "=" * 60)
+    print("Gateway connectivity tests completed!")
+    print("=" * 60)
 
-)
-
-print("\n" + "=" * 60)
-print("Gateway connectivity tests completed!")
-print("=" * 60)
 
 
+#-------------------------------------------
+# Main
+#-------------------------------------------
 
-
-
-
-
-
-
-
+def main():
+    gateway_info = get_gateway_info(GATEWAY_NAME, REGION)
+    get_memory_info(MEMORY_NAME, REGION)
+    cognito_info = get_cognito_info_from_gateway(GATEWAY_NAME, region=REGION)
+    if cognito_info:
+        print(f"Cognito: Cognito client found {cognito_info['client_info']['client_id']}")
+    print("Verifying OAuth Configuration...")
+    print("=" * 60)
+    ensure_oauth_flows(cognito_info['client_info'])
+    run_integration_test(gateway_info, cognito_info)
+if __name__ == "__main__":
+    main()
 
 
 
