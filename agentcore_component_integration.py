@@ -3,7 +3,7 @@
 # Original code taken from puria-izady/mastering-amazon-bedrock-agentcore
 # notebooks. I converted it to python files and refactored code from python 3.10
 # libraries to work with python 3.12 which required changes to dependency python
-# modules and changes to Agentcore and cognito code. Removed dependencies on
+# modules and changes to Agentcore and Cognito code. Removed dependencies on
 # using state files from previous notebopok solutions by direct inquiry to
 # AWS systems.
 #  
@@ -17,7 +17,7 @@
 # Setup and Resource Discovery
 # Retrieve existing Agentcore Gateway information from AWS
 # Retrieve existing Agentcore Memory from AWS
-# Retrieve exisating cognito info used by AGentcore gateway
+# Retrieve existing cognito info used by Agentcore gateway
 # Ensure OAuth Configuration
 # Test Gateway Connectivity
 # Test Oauth Token
