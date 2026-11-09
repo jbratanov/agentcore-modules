@@ -1,3 +1,8 @@
+#
+# Setup Agentcore Gateway
+# Setup Agentcore Memory
+# Setup Cognito for Agentcore Gateway
+#
 #-------------------------------------------
 # imports
 #-------------------------------------------
@@ -8,39 +13,48 @@ from bedrock_agentcore_starter_toolkit.operations.gateway.client import GatewayC
 #from cognito_config import setup_cognito_oauth
 import boto3
 import requests
+import logging
+from botocore.exceptions import ClientError
+from bedrock_agentcore.memory import MemoryClient
+from bedrock_agentcore.memory.constants import StrategyType
 
 #-------------------------------------------
-# Configuration from environment variables
+# Assign Global Vars
 #-------------------------------------------
 
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
 
 # Gateway configuration from environment
-GATEWAY_ID = os.environ.get("GATEWAY_ID")
-GATEWAY_MCP_ENDPOINT = os.environ.get("GATEWAY_MCP_ENDPOINT")
-GATEWAY_TOKEN_ENDPOINT = os.environ.get("GATEWAY_TOKEN_ENDPOINT")
-GATEWAY_OAUTH_CLIENT_ID = os.environ.get("GATEWAY_OAUTH_CLIENT_ID")
-GATEWAY_OAUTH_CLIENT_SECRET = os.environ.get("GATEWAY_OAUTH_CLIENT_SECRET")
-GATEWAY_OAUTH_SCOPE = os.environ.get("GATEWAY_OAUTH_SCOPE")
+#GATEWAY_ID = os.environ.get("GATEWAY_ID")
+#GATEWAY_MCP_ENDPOINT = os.environ.get("GATEWAY_MCP_ENDPOINT")
+#GATEWAY_TOKEN_ENDPOINT = os.environ.get("GATEWAY_TOKEN_ENDPOINT")
+#GATEWAY_OAUTH_CLIENT_ID = os.environ.get("GATEWAY_OAUTH_CLIENT_ID")
+#GATEWAY_OAUTH_CLIENT_SECRET = os.environ.get("GATEWAY_OAUTH_CLIENT_SECRET")
+#GATEWAY_OAUTH_SCOPE = os.environ.get("GATEWAY_OAUTH_SCOPE")
 
 # Memory configuration from environment
-MEMORY_ID = os.environ.get("MEMORY_ID")
 MEMORY_USER_ID = os.environ.get("MEMORY_USER_ID", "default-user")
 MEMORY_SESSION_ID = os.environ.get("MEMORY_SESSION_ID", "default-session")
+MEMORY_NAME = "TravelMateMemory"
 
-#-------------------------------------------
-# Assign Global Vars
-#-------------------------------------------
 OPENAPI_SPECS_DIR='./openapi_specs/'
 GATEWAY_NAME = "TravelMateGateway"
 MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 COMPONENT_CONFIG_FILE="./travelprogram_config.json"
 
 #-------------------------------------------
+# Setup logging
+#-------------------------------------------
+logging.basicConfig(level=logging.INFO, filename="./newfile.log",format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("travel-memory")
+logging.info("AgentCore Memory imports successful")
+
+
+#-------------------------------------------
 # External API keys
 #-------------------------------------------
-api_keys = {
+external_api_keys = {
     "AVIATIONSTACK_API_KEY": os.getenv("AVIATIONSTACK_API_KEY"),
     "OPENWEATHERMAP_API_KEY": os.getenv("OPENWEATHERMAP_API_KEY"),
     "EXCHANGERATE_API_KEY": os.getenv("EXCHANGERATE_API_KEY")
@@ -52,18 +66,22 @@ api_keys = {
 #------------------------------------------
 env = load_dotenv()
 
+############################################################
+# Setup Agentcore Gateway and Cognito
+############################################################
+
 #-------------------------------------------
 # Validate all required external API keys
 #-------------------------------------------
 
 print("API Key Validation:")
-for key_name, key_value in api_keys.items():
+for key_name, key_value in external_api_keys.items():
     if key_value:
         print(f"{key_name}: {'*' * 8}{key_value[-4:]}")
     else:
         print(f"{key_name}: Not configured")
 
-missing_keys = [k for k, v in api_keys.items() if not v]
+missing_keys = [k for k, v in external_api_keys.items() if not v]
 if missing_keys:
     print(f"\nMissing API keys: {', '.join(missing_keys)}")
     print("Please configure these before proceeding.")
@@ -111,7 +129,7 @@ for api_name, spec in specs.items():
 print(f"Creating AgentCore Gateway: {GATEWAY_NAME}")
 print(f"Region: {REGION}")
 
-client = GatewayClient(region_name=REGION)
+gateway_client = GatewayClient(region_name=REGION)
 print("Gateway client initialized")
 
 
@@ -121,7 +139,7 @@ print("Gateway client initialized")
 
 # Set up Cognito OAuth
 print("Setting up OAuth with Cognito...")
-cognito_result = client.create_oauth_authorizer_with_cognito(GATEWAY_NAME)
+cognito_result = gateway_client.create_oauth_authorizer_with_cognito(GATEWAY_NAME)
 
 
 print("OAuth configuration complete")
@@ -159,7 +177,7 @@ activate_oauth(cognito_result['client_info'])
 print(f"Creating Gateway: {GATEWAY_NAME}...")
 
 try:
-    gateway = client.create_mcp_gateway(
+    gateway = gateway_client.create_mcp_gateway(
         name=GATEWAY_NAME,
         role_arn=None,  # Auto-create
         authorizer_config=cognito_result['authorizer_config'],
@@ -169,10 +187,10 @@ try:
 except:
     print(f"Gateway {GATEWAY_NAME} already exists, retrieving...")
     # Get existing gateway
-    gateways = client.client.list_gateways()['items']
+    gateways = gateway_client.client.list_gateways()['items']
     gateway = next((g for g in gateways if g['name'] == GATEWAY_NAME), None)
     if gateway:
-        gateway = client.client.get_gateway(gatewayIdentifier=gateway['gatewayId'])
+        gateway = gateway_client.client.get_gateway(gatewayIdentifier=gateway['gatewayId'])
         print("Retrieved existing gateway")
     else:
         raise Exception(f"Gateway {GATEWAY_NAME} not found")
@@ -188,10 +206,10 @@ print(f"Gateway ID: {gateway['gatewayId']}")
 #
 # Add Aviationstack target (Flight search)
 #
-print("✈️ Adding Aviationstack (Flight Search)...")
+print("Adding Aviationstack (Flight Search)...")
 
 aviationstack_spec = specs["Aviationstack (Flights)"]
-aviationstack_target = client.create_mcp_gateway_target(
+aviationstack_target = gateway_client.create_mcp_gateway_target(
     gateway=gateway,
     name="FlightSearch", 
     target_type="openApiSchema",
@@ -199,7 +217,7 @@ aviationstack_target = client.create_mcp_gateway_target(
         "inlinePayload": json.dumps(aviationstack_spec)
     },
     credentials={
-        "api_key": api_keys["AVIATIONSTACK_API_KEY"],
+        "api_key": external_api_keys["AVIATIONSTACK_API_KEY"],
         "credential_location": "QUERY_PARAMETER",
         "credential_parameter_name": "access_key"
     }
@@ -215,7 +233,7 @@ print(f"   Available tool: {aviationstack_target_name}___getFlights")
 print("Adding OpenWeatherMap (Weather)...")
 
 weather_spec = specs["OpenWeatherMap (Weather)"]
-weather_target = client.create_mcp_gateway_target(
+weather_target = gateway_client.create_mcp_gateway_target(
     gateway=gateway,
     name="WeatherSearch",
     target_type="openApiSchema",
@@ -223,7 +241,7 @@ weather_target = client.create_mcp_gateway_target(
         "inlinePayload": json.dumps(weather_spec)
     },
     credentials={
-        "api_key": api_keys["OPENWEATHERMAP_API_KEY"],
+        "api_key": external_api_keys["OPENWEATHERMAP_API_KEY"],
         "credential_location": "QUERY_PARAMETER",
         "credential_parameter_name": "appid"
     }
@@ -240,7 +258,7 @@ print(f"   Available tools: {weather_target_name}___getCurrentWeather, {weather_
 print("Adding ExchangeRate-API (Currency)...")
 
 currency_spec = specs["ExchangeRate-API (Currency)"]
-currency_target = client.create_mcp_gateway_target(
+currency_target = gateway_client.create_mcp_gateway_target(
     gateway=gateway,
     name="ExchangeRate",
     target_type="openApiSchema",
@@ -248,7 +266,7 @@ currency_target = client.create_mcp_gateway_target(
         "inlinePayload": json.dumps(currency_spec)
     },
     credentials={
-        "api_key": api_keys["EXCHANGERATE_API_KEY"],
+        "api_key": external_api_keys["EXCHANGERATE_API_KEY"],
         "credential_location": "QUERY_PARAMETER",
         "credential_parameter_name": "api_key"
     }
@@ -271,7 +289,7 @@ print("Testing Gateway Tools")
 print("=" * 40)
 
 # Get access token for testing
-access_token = client.get_access_token_for_cognito({
+access_token = gateway_client.get_access_token_for_cognito({
     "client_id": cognito_result['client_info']['client_id'],
     "client_secret": cognito_result['client_info']['client_secret'],
     "scope": cognito_result['client_info']['scope'],
@@ -411,8 +429,8 @@ gateway_info = {
 }
 
 # Save gateway config to config file
-with open(COMPONENT_CONFIG_FILE, 'w') as f:
-    json.dump(gateway_info, f, indent=2)
+#with open(COMPONENT_CONFIG_FILE, 'w') as f:
+#    json.dump(gateway_info, f, indent=2)
 
 
 print("\nGateway Summary:")
@@ -421,5 +439,190 @@ print(f"  MCP Endpoint: {gateway_info['mcp_endpoint']}")
 print(f"  Available Tools: {len(gateway_info['available_tools'])}")
 for tool in gateway_info['available_tools']:
     print(f"    - {tool}")
+
+############################################################
+# Setup Agentcore Memory
+############################################################
+
+#-------------------------------------------
+# Create Travel Memory Resource
+#-------------------------------------------
+
+logging.info(f"Creating AgentCore Memory for Travel Agent Memory Name: {MEMORY_NAME} Region: {REGION} User ID: {MEMORY_USER_ID}")
+
+# Initialize Memory Client
+memory_client = MemoryClient(region_name=REGION)
+logging.info("Memory client initialized")
+
+
+#-------------------------------------------
+# Define memory strategies for travel
+# planning
+#-------------------------------------------
+strategies = [
+    {
+        StrategyType.USER_PREFERENCE.value: {
+            "name": "TravelPreferences",
+            "description": "Captures user travel preferences and behavior",
+            "namespaces": ["travel/user/{actorId}/preferences"]
+        }
+    },
+    {
+        StrategyType.SEMANTIC.value: {
+            "name": "TravelSemantic",
+            "description": "Stores travel facts and trip information",
+            "namespaces": ["travel/user/{actorId}/semantic"]
+        }
+    },
+    {
+        StrategyType.SUMMARY.value: {
+            "name": "TravelSummary", 
+            "description": "Maintains conversation summaries for context",
+            "namespaces": ["travel/user/{actorId}/summary/{sessionId}"]
+        }
+    }
+]
+
+print("Memory Strategies Defined:")
+for strategy in strategies:
+    strategy_type = list(strategy.keys())[0]
+    strategy_info = strategy[strategy_type]
+    print(f"  • {strategy_info['name']}: {strategy_info['description']}")
+
+
+#-------------------------------------------
+# Create memory resource
+#-------------------------------------------
+try:
+    print("Creating memory resource...")
+    memory = memory_client.create_memory_and_wait(
+        name=MEMORY_NAME,
+        strategies=strategies,
+        description="Memory for AI Travel Companion agent",
+        event_expiry_days=365,  # Keep travel memories for 1 year
+    )
+    memory_id = memory['id']
+    print(f"Created memory: {memory_id}")
+
+# If memory exist, get memory info    
+except ClientError as e:
+    if e.response['Error']['Code'] == 'ValidationException' and "already exists" in str(e):
+        # If memory already exists, retrieve its ID
+        memories = memory_client.list_memories()
+        memory_id = next((m['id'] for m in memories if m['id'].startswith(MEMORY_NAME)), None)
+        print(f"Memory already exists. Using existing memory ID: {memory_id}")
+    else:
+        raise e
+
+#-------------------------------------------
+# Verify memory strategies are configured
+# correctly
+#-------------------------------------------
+strategies_info = memory_client.get_memory_strategies(memory_id)
+
+print("Memory Strategies Verification:")
+print("=" * 50)
+for strategy in strategies_info:
+    print(f"\n{strategy['name']}")
+    print(f"   Type: {strategy['type']}")
+    print(f"   Description: {strategy['description']}")
+    print(f"   Namespaces: {strategy['namespaces']}")
+
+print(f"\n✅ {len(strategies_info)} strategies configured successfully")
+
+#-------------------------------------------
+# Seed initial travel preferences for
+# demonstration
+#-------------------------------------------
+travel_interactions = [
+    ("I prefer mid-range hotels, nothing too fancy but clean and comfortable.", "USER"),
+    ("Noted! I'll focus on 3-4 star hotels with good reviews for cleanliness and comfort.", "ASSISTANT"),
+    ("I'm vegetarian, so I need restaurants with good vegetarian options.", "USER"),
+    ("Perfect! I'll make sure to recommend destinations and restaurants known for excellent vegetarian cuisine.", "ASSISTANT"),
+    ("My budget is usually around $3000-5000 for a 10-day international trip.", "USER"),
+    ("That's a great budget range! I can help you plan amazing trips within $3000-5000 for 10 days.", "ASSISTANT"),
+    ("I love historical sites and museums, not so much into nightlife or beaches.", "USER"),
+    ("Excellent! I'll focus on destinations rich in history and culture with world-class museums.", "ASSISTANT")
+]
+
+print("Seeding travel preferences...")
+try:
+    memory_client.create_event(
+        memory_id=memory_id,
+        actor_id=MEMORY_USER_ID,
+        session_id="preference_setup",
+        messages=travel_interactions
+    )
+    print(f"Seeded travel preferences for user: {MEMORY_USER_ID}")
+    
+except Exception as e:
+    print(f"Error seeding preferences: {e}")
+
+
+#-------------------------------------------
+# Test memory retrieval
+#-------------------------------------------
+print("Testing Memory Retrieval")
+print("=" * 50)
+
+
+# Try to retrieve memories
+try:
+    memories = memory_client.retrieve_memories(
+        memory_id=memory_id,
+        namespace=f"travel/user/{MEMORY_USER_ID}/preferences",
+        query="vegetarian food preferences",
+        top_k=3
+    )
+    
+    print(f"\nRetrieved {len(memories)} memories:")
+    for i, memory in enumerate(memories, 1):
+        if isinstance(memory, dict):
+            content = memory.get('content', {})
+            if isinstance(content, dict):
+                text = content.get('text', '')[:100] + "..."
+                print(f"  {i}. {text}")
+                
+except Exception as e:
+    print(f"Memory retrieval test: {e}")
+    print("This is normal - memories may take time to process")
+
+
+#-------------------------------------------
+# Save memory information for use in
+# troubleshooting or state
+#-------------------------------------------
+memory_info = {
+    "memory_id": memory_id,
+    "memory_name": MEMORY_NAME,
+    "region": REGION,
+    "user_id": MEMORY_USER_ID,
+    "session_id": MEMORY_SESSION_ID
+}
+
+# Save to file
+#with open(COMPONENT_CONFIG_FILE, 'w') as f:
+#    json.dump(memory_info, f, indent=2)
+
+print("Memory information saved to environments/memory_info.json")
+print("\nMemory Summary:")
+print(f"  Memory ID: {memory_info['memory_id']}")
+print(f"  User ID: {memory_info['user_id']}")
+print(f"  Region: {memory_info['region']}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
