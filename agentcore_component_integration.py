@@ -1,12 +1,4 @@
-
 #
-# Original code taken from puria-izady/mastering-amazon-bedrock-agentcore
-# notebooks. I converted it to python files and refactored code from python 3.10
-# libraries to work with python 3.12 which required changes to dependency python
-# modules and changes to Agentcore and Cognito code. Removed dependencies on
-# using state files from previous notebopok solutions by direct inquiry to
-# AWS systems.
-#  
 #
 # AWS Dependencies:
 #   Agentcore Gateway setup
@@ -34,9 +26,6 @@
 #---------------------------------------------------
 
 
-
-
-
 #-------------------------------------------
 # imports
 #-------------------------------------------
@@ -56,9 +45,6 @@ REGION = 'us-east-1'
 OPENAPI_SPECS_DIR='./openapi_specs/'
 MEMORY_NAME = "TravelMateMemory"
 GATEWAY_NAME = "TravelMateGateway"
-model_id = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-
-
 
 
 print("Resource Discovery:")
@@ -81,8 +67,6 @@ def get_gateway_info(
 
     return(gateway_info)
 
-
-#gateway_info = get_gateway_info(GATEWAY_NAME, REGION)
 
 
 #-------------------------------------------
@@ -244,13 +228,6 @@ def get_cognito_info_from_gateway(
         },
     }
 
-#cognito_info = get_cognito_info_from_gateway(GATEWAY_NAME, region=REGION)
-#cognito_json = (json.dumps(cognito_info, indent=2))
-#if cognito_info:
-#    print(f"Cognito: Cognito client found {cognito_info['client_info']['client_id']}")
-    
-#print(cognito_info)    
-    
     
 
 #-------------------------------------------
